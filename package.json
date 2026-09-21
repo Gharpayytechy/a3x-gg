@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "deploy": "npm run build && npx nitro deploy --prebuilt",
+    "deploy:dry-run": "npm run build && npx nitro deploy --prebuilt --dry-run"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
