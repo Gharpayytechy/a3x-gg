@@ -1,7 +1,7 @@
 // Four or five questions on one screen. Same options, same rules, fewer clicks:
 // picking an option saves itself, and one button saves + moves to the next screen.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, History, Lock } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, History, Lock, RotateCcw, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ const inputType = (kind: JStep["kind"] | "TEXT" | "NUMBER" | "DATE" | "DATETIME"
 
 const fieldsOf = (st: JStep) => [st.field, ...(st.extra ?? []).map((x) => x.field)];
 
+const DISQUALIFY_REASONS = ["Cut call on face", "Wrong number", "Budget too low", "Not interested", "Other"];
+
 export function ScreenPanel({
   lead,
   screen,
@@ -37,12 +39,22 @@ export function ScreenPanel({
   canPrev?: boolean;
   canNext?: boolean;
 }) {
-  const { answerStep, editFields } = useBookingFlow();
+  const { answerStep, editFields, disqualifyLead, reopenLead, me } = useBookingFlow();
   const f = lead.f ?? {};
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [isDisqualifying, setIsDisqualifying] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string>("");
+  const [customReason, setCustomReason] = useState<string>("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setDraft({}), [screen.id, lead.id]);
+  useEffect(() => {
+    setDraft({});
+    setIsDisqualifying(false);
+    setSelectedReason("");
+    setCustomReason("");
+  }, [screen.id, lead.id]);
+
+  const isDisqualified = lead.stage === "Closed / Disqualified" || lead.f?.fastDisqualified === "YES" || Boolean(lead.closedReason);
 
   const now = currentScreen(f);
   const idx = screenIndex(screen.id);
@@ -181,10 +193,132 @@ export function ScreenPanel({
         <Badge variant="outline" className="text-[10px]">{p.done}/{p.total} answered</Badge>
         {locked && <Badge variant="outline" className="text-[10px]"><Lock className="mr-1 h-3 w-3" />Opens after “{now.title}”</Badge>}
         {idx === nowIdx && <Badge className="text-[10px]">Do this now</Badge>}
+        <Button
+          size="sm"
+          variant={isDisqualified ? "destructive" : isDisqualifying ? "secondary" : "outline"}
+          className={cn(
+            "h-7 px-2 text-[11px] font-semibold transition border-destructive/40",
+            (isDisqualifying || isDisqualified) ? "border-destructive text-destructive bg-destructive/10 hover:bg-destructive/20" : "text-destructive hover:bg-destructive/10"
+          )}
+          onClick={() => setIsDisqualifying((v) => !v)}
+        >
+          <Zap className="mr-1 h-3 w-3 text-destructive" />
+          ⚡ Fast Disqualify / Call Cut
+        </Button>
         <div className="ml-auto">{nav}</div>
       </div>
 
-      {locked ? (
+      {isDisqualified ? (
+        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="destructive" className="text-xs font-semibold">Closed / Disqualified</Badge>
+              <span className="text-xs font-medium text-destructive">
+                Reason: {lead.closedReason || lead.f?.disqualifyReason || "Disqualified"}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs border-primary/40 text-primary hover:bg-primary/10"
+              onClick={() => {
+                reopenLead(lead.id);
+                setIsDisqualifying(false);
+                setSelectedReason("");
+                setCustomReason("");
+                toast.success("Lead re-opened and full form restored");
+              }}
+            >
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              🔄 Revoke &amp; Re-open
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Disqualified at {lead.disqualifiedAt ? new Date(lead.disqualifiedAt).toLocaleString() : lead.lastActionAt ? new Date(lead.lastActionAt).toLocaleString() : "just now"} · Owner: {lead.disqualifiedBy || lead.owner || me}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Remaining question steps are hidden. Click "🔄 Revoke &amp; Re-open" to restore full form when customer responds.
+          </p>
+        </div>
+      ) : isDisqualifying ? (
+        <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5" /> Fast Disqualify / Call Cut
+              </h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Disqualify dead leads or call drops instantly without filling out remaining questions.
+              </p>
+            </div>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground" onClick={() => setIsDisqualifying(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-medium text-foreground mb-1.5">Disqualification Reason:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DISQUALIFY_REASONS.map((reason) => (
+                <button
+                  key={reason}
+                  type="button"
+                  onClick={() => setSelectedReason(reason)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] transition font-medium",
+                    selectedReason === reason
+                      ? "border-destructive bg-destructive text-destructive-foreground shadow-sm"
+                      : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-medium text-foreground mb-1">Custom Reason (Optional):</p>
+            <Input
+              type="text"
+              placeholder="Enter custom reason or additional details..."
+              value={customReason}
+              onChange={(e) => setCustomReason(e.target.value)}
+              className="h-8 text-xs bg-background"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 pt-1 border-t border-destructive/20">
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-7 px-3 text-[11px]"
+              disabled={!selectedReason}
+              onClick={() => {
+                if (!selectedReason) {
+                  toast.error("Please select a disqualification reason");
+                  return;
+                }
+                disqualifyLead(lead.id, selectedReason, customReason);
+                setIsDisqualifying(false);
+                setSelectedReason("");
+                setCustomReason("");
+                toast.success("Lead updated to Closed / Disqualified");
+              }}
+            >
+              Confirm Disqualify
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => setIsDisqualifying(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : locked ? (
         <p className="mt-3 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
           Finish “{now.title}” first. Still needed there: {now.steps.flatMap((s) => missingOn(f, s)).join(", ") || "an answer"}.
         </p>

@@ -69,6 +69,8 @@ interface State {
   moveStage: (leadId: string, stage: string, reason: string) => void;
   bulk: (leadIds: string[], patch: { handler?: string; nextAction?: string; nextActionAt?: string; temp?: Temp; escalate?: boolean }, reason: string) => void;
   escalate: (leadId: string, reason: string) => void;
+  disqualifyLead: (leadId: string, reason: string, customReason?: string) => void;
+  reopenLead: (leadId: string) => void;
   reset: () => void;
 }
 
@@ -430,6 +432,85 @@ export const useBookingFlow = create<State>()(
               : l,
           ),
         })),
+
+      disqualifyLead: (leadId, reason, customReason) =>
+        set((s) => {
+          const fullReason = customReason?.trim()
+            ? `${reason}${reason !== "Other" ? " — " : ""}${customReason.trim()}`
+            : reason;
+          const actor = s.me;
+          const timestamp = now();
+          return {
+            leads: s.leads.map((l) => {
+              if (l.id !== leadId) return l;
+              const owner = l.owner ?? s.me;
+              return {
+                ...l,
+                stage: "Closed / Disqualified",
+                closedReason: fullReason,
+                owner,
+                handler: owner,
+                lastActionAt: timestamp,
+                disqualifiedAt: timestamp,
+                disqualifiedBy: owner,
+                f: {
+                  ...l.f,
+                  fastDisqualified: "YES",
+                  disqualifyReason: fullReason,
+                  disqualifiedAt: timestamp,
+                  disqualifiedBy: owner,
+                },
+                events: [
+                  ...l.events,
+                  {
+                    at: timestamp,
+                    actor,
+                    label: "Closed / Disqualified",
+                    detail: `Reason: ${fullReason} (Owner: ${owner})`,
+                    stepKey: "FAST_DISQUALIFY",
+                  },
+                ],
+              };
+            }),
+          };
+        }),
+
+      reopenLead: (leadId) =>
+        set((s) => {
+          const actor = s.me;
+          const timestamp = now();
+          return {
+            leads: s.leads.map((l) => {
+              if (l.id !== leadId) return l;
+              const next = currentStep(l.f ?? {});
+              const newStage = next ? next.key : "WHERE";
+              const copyF = { ...l.f };
+              delete copyF["fastDisqualified"];
+              delete copyF["disqualifyReason"];
+              delete copyF["disqualifiedAt"];
+              delete copyF["disqualifiedBy"];
+              return {
+                ...l,
+                stage: newStage,
+                closedReason: undefined,
+                disqualifiedAt: undefined,
+                disqualifiedBy: undefined,
+                lastActionAt: timestamp,
+                f: copyF,
+                events: [
+                  ...l.events,
+                  {
+                    at: timestamp,
+                    actor,
+                    label: "Revoked & Re-opened",
+                    detail: "Disqualification revoked — restored full question form",
+                    stepKey: "FAST_DISQUALIFY",
+                  },
+                ],
+              };
+            }),
+          };
+        }),
 
       reset: () => set({ rows: seedCapturedRows(), leads: seedLeads(), batches: [] }),
     }),

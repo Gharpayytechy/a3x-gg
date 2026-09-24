@@ -80,6 +80,8 @@ export interface FlowLead {
   qualifiedAt?: string;
   escalated?: boolean;
   closedReason?: string;
+  disqualifiedAt?: string;
+  disqualifiedBy?: string;
   /** other leads that are the same person or the same group requirement */
   connectedTo?: string[];
   events: FlowEvent[];

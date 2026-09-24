@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, CheckCircle2, ClipboardCopy, Clock3, Flag, Goal,
   Building2, Hand, MessageCircle, Phone, PhoneCall, PhoneOff, PlayCircle, PlusCircle, ShieldCheck, Timer,
+  Zap, FastForward, Share2, Flame, AlertCircle, Copy, ArrowRight, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -110,11 +111,20 @@ export function MovementCare() {
   const playbook = CARE_PLAYBOOKS[activeRole];
   const stage = playbook.stages.find((item) => item.goal === activeGoal) ?? playbook.stages[0];
   const systemQueue = useMemo(() => queueForGoal(activeGoal, list), [activeGoal, list]);
-  const queue = useMemo(() => {
+  const [filterLateOnly, setFilterLateOnly] = useState(false);
+  const [eodReportOpen, setEodReportOpen] = useState(false);
+  const [eodCopied, setEodCopied] = useState(false);
+
+  const rawQueue = useMemo(() => {
     if (!manualMode) return systemQueue;
     const byId = new Map(systemQueue.map((item) => [item.ulid, item]));
     return manualList.map((ulid) => byId.get(ulid)).filter(Boolean) as typeof systemQueue;
   }, [manualMode, manualList, systemQueue]);
+  const queue = useMemo(() => {
+    if (!filterLateOnly) return rawQueue;
+    return rawQueue.filter(item => item.health === "breached" || item.health === "action-due" || item.bucket === "P0");
+  }, [filterLateOnly, rawQueue]);
+
   const candidates = useMemo<ManualCandidate[]>(() => systemQueue.map((item) => {
     const info = nameOf.get(item.ulid);
     return {
@@ -327,6 +337,117 @@ export function MovementCare() {
     setStuck("");
     setNeed("");
     toast.success(`${ROUND_COPY[round].label} progress reported`);
+  };  // Advance to next lead in queue
+  const advanceToNext = (currentUlid: string) => {
+    const currentIndex = queue.findIndex((item) => item.ulid === currentUlid);
+    if (currentIndex !== -1 && currentIndex < queue.length - 1) {
+      setSelected(queue[currentIndex + 1].ulid);
+    } else if (queue.length > 0) {
+      setSelected(queue[0].ulid);
+    }
+  };
+
+  // 1-Click Fast Disposition: logs result, sets timer, and auto-advances to next lead
+  const quickDisposition = (action: "no-answer" | "busy" | "callback" | "tour-booked" | "not-interested") => {
+    if (!selectedState) return;
+    const ulid = selectedState.ulid;
+    const actorId = mv.actor.id;
+    const actorName = mv.actor.name;
+
+    if (action === "no-answer") {
+      mv.logCall(ulid, "no-answer", "1-click: No answer");
+      mv.setNextAction(ulid, {
+        kind: "call",
+        dueAt: new Date(Date.now() + 120 * 60_000).toISOString(),
+        ownerId: selectedState.primaryOwnerId || actorId,
+        ownerName: selectedState.primaryOwnerName || actorName,
+        note: "Auto follow-up: No answer (retry in 2h)",
+      });
+      toast.success("No answer logged - Auto-advanced to next customer");
+    } else if (action === "busy") {
+      mv.logCall(ulid, "busy", "1-click: Line busy");
+      mv.setNextAction(ulid, {
+        kind: "call",
+        dueAt: new Date(Date.now() + 45 * 60_000).toISOString(),
+        ownerId: selectedState.primaryOwnerId || actorId,
+        ownerName: selectedState.primaryOwnerName || actorName,
+        note: "Auto follow-up: Line busy (retry in 45m)",
+      });
+      toast.success("Line busy logged - Auto-advanced to next customer");
+    } else if (action === "callback") {
+      mv.logCall(ulid, "connected", "1-click: Callback requested");
+      mv.setNextAction(ulid, {
+        kind: "call",
+        dueAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        ownerId: selectedState.primaryOwnerId || actorId,
+        ownerName: selectedState.primaryOwnerName || actorName,
+        note: "Callback requested in 1 hour",
+      });
+      toast.success("Callback in 1h scheduled - Auto-advanced");
+    } else if (action === "tour-booked") {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60_000);
+      tomorrow.setHours(11, 0, 0, 0);
+      const tourIso = tomorrow.toISOString();
+      mv.logCall(ulid, "connected", "1-click: Tour agreed");
+      mv.scheduleTour(ulid, tourIso, selectedState.tourProperty ?? undefined);
+      mv.confirmTour(ulid);
+      mv.setNextAction(ulid, {
+        kind: "confirm-tour",
+        dueAt: new Date(Date.now() + 180 * 60_000).toISOString(),
+        ownerId: selectedState.primaryOwnerId || actorId,
+        ownerName: selectedState.primaryOwnerName || actorName,
+        note: "Tour locked for tomorrow 11:00 AM",
+      });
+      toast.success("Tour scheduled & confirmed - Auto-advanced");
+    } else if (action === "not-interested") {
+      mv.logCall(ulid, "rejected", "1-click: Not interested / dropped");
+      mv.exit(ulid, "budget", "Customer not interested / out of scope");
+      toast.success("Lead closed as not interested - Auto-advanced");
+    }
+
+    advanceToNext(ulid);
+  };
+
+  // Compile EOD WhatsApp report
+  const eodReportText = useMemo(() => {
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const dateStr = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    const percent = commitment ? Math.round((actual / Math.max(commitment.commitCount, 1)) * 100) : 0;
+    return [
+      `*EOD Shift Report · ${mv.actor.name}* 📊`,
+      `Date: ${dateStr} @ ${timeStr}`,
+      `Role: ${activeRole.toUpperCase()} | Target Goal: ${activeGoal}`,
+      ``,
+      `🎯 *Promise vs Delivered:*`,
+      `• Result Goal: ${actual} / ${commitment?.commitCount ?? 0} (${percent}% achieved)`,
+      `• Stage Unit: ${stage.outcome}`,
+      ``,
+      `📞 *Call Activity:*`,
+      `• Total Dialled: ${calls.dialled}`,
+      `• Connected: ${calls.connected} (${calls.rate}% connect rate)`,
+      `• Unanswered/Busy: ${calls.notConnected}`,
+      ``,
+      `⚡ *Pipeline Velocity:*`,
+      `• Drafts Completed: ${total.drafted}`,
+      `• Definitely Close: ${total.goodLeads}`,
+      `• Tours Scheduled: ${total.toursScheduled}`,
+      `• Tours Completed: ${total.toursDone}`,
+      `• Bookings Won: ${total.booked}`,
+      `• Critical / At Risk Remaining: ${total.breached + total.p0}`,
+      ``,
+      `_Generated with 1-click via Gharpayy Movement CARE_`,
+    ].join("\n");
+  }, [mv.actor.name, activeRole, activeGoal, actual, commitment, stage.outcome, calls, total]);
+
+  const copyEODReport = async () => {
+    try {
+      await navigator.clipboard.writeText(eodReportText);
+      setEodCopied(true);
+      setTimeout(() => setEodCopied(false), 2000);
+      toast.success("EOD report copied! Ready to paste into WhatsApp team chat.");
+    } catch {
+      toast.error("Could not copy automatically. Please copy the text manually.");
+    }
   };
 
   return (
@@ -428,7 +549,10 @@ export function MovementCare() {
                 const status = resultStatus(item.state);
                 return (
                   <Button key={item.ulid} variant="ghost" onClick={() => setSelected(item.ulid)}
-                    className={cn("h-auto w-full justify-start rounded-none px-3 py-2 text-left", selected === item.ulid && "bg-primary/10")}>
+                    className={cn(
+                    "h-auto w-full justify-start rounded-none px-3 py-2 text-left border-l-2",
+                    selected === item.ulid ? "bg-primary/10 border-l-primary" : item.health === "breached" ? "border-l-destructive bg-destructive/5" : item.health === "action-due" ? "border-l-amber-500 bg-amber-500/5" : "border-l-transparent"
+                  )}>
                     <span className="w-5 shrink-0 font-mono text-[10px] text-muted-foreground">{index + 1}</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
@@ -636,6 +760,46 @@ export function MovementCare() {
       )}
 
       {showPlaybook && <PlaybookDrawer playbook={playbook} onClose={() => setShowPlaybook(false)} />}
+      {/* EOD WhatsApp Report Modal */}
+      {eodReportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-xl border bg-card p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Share2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">End-of-Day WhatsApp Report</h3>
+                  <p className="text-[10px] text-muted-foreground">Compiled shift metrics formatted for team group update</p>
+                </div>
+              </div>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEodReportOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="rounded-lg border bg-[#dcf8c6] dark:bg-green-950/40 border-green-200 dark:border-green-900 p-3.5 font-mono text-xs whitespace-pre-wrap leading-relaxed max-h-[360px] overflow-y-auto">
+              {eodReportText}
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] text-muted-foreground">
+                {eodCopied ? "✓ Copied to clipboard!" : "Click copy and paste directly into WhatsApp"}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEodReportOpen(false)}>
+                  Close
+                </Button>
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5" onClick={copyEODReport}>
+                  {eodCopied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {eodCopied ? "Copied!" : "Copy Report"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
