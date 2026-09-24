@@ -765,7 +765,7 @@ export function AuditTrailPanel({ ulid }: { ulid: string | null }) {
   const exportLog = () => {
     const text = rows
       .map((e) =>
-        `[${new Date(e.at).toLocaleString()}] ${e.operatorName ?? "system"} — ${e.kind}: ${e.text}`
+        `[${new Date(e.ts).toLocaleString()}] ${e.actorName ?? "system"} — ${e.kind}: ${e.text}`
       )
       .join("\n");
     navigator.clipboard.writeText(text).then(() => {
@@ -794,9 +794,9 @@ export function AuditTrailPanel({ ulid }: { ulid: string | null }) {
         {rows.map((e, i) => (
           <div key={i} className="px-3 py-1.5 text-[11px] flex items-start gap-2">
             <span className="text-muted-foreground whitespace-nowrap tabular-nums shrink-0">
-              {new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>
-            <span className="font-medium text-primary/80 shrink-0">{e.operatorName ?? "system"}</span>
+            <span className="font-medium text-primary/80 shrink-0">{e.actorName ?? "system"}</span>
             <span className="text-muted-foreground truncate">{e.kind}: {e.text}</span>
           </div>
         ))}
