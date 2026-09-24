@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, Clock, Flame, Lock, MessageSquare,
-  Phone, Play, RefreshCw, Timer, TrendingDown, Unlock, Users,
+  AlertTriangle, CheckCircle2, ChevronDown, Clock, Copy, Flame,
+  Lock, MessageSquare, Phone, Play, RefreshCw, Timer, TrendingDown,
+  Unlock, UserCheck, Users, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useMovement } from "./store";
 import { active13, drafting30, rank, type Scored } from "./priority";
 import { funnel, leaks, lossReasons, operatorBoard, totals } from "./metrics";
-import { DRAFT_META, PRIORITY_LABEL, type DraftCode, type MovementState } from "./types";
+import { DRAFT_META, OPERATORS, PRIORITY_LABEL, type DraftCode, type MovementState } from "./types";
 
 type Meta = Map<string, { name: string; phone: string; area: string }>;
 
@@ -216,23 +217,103 @@ export function DraftingPanel({ list, meta }: { list: MovementState[]; meta: Met
 }
 
 
+/* ─────────────── Pipeline Summary Bar ─────────────── */
+
+type PipelineFilter = "overdue" | "tours" | "conversion" | null;
+
+function PipelineBar({
+  rows,
+  activeFilter,
+  onFilter,
+}: {
+  rows: Scored[];
+  activeFilter: PipelineFilter;
+  onFilter: (f: PipelineFilter) => void;
+}) {
+  const total   = rows.length;
+  const overdue = rows.filter((r) => r.health === "breached" || r.health === "action-due").length;
+  const tours   = rows.filter((r) => r.state.tourAt && !r.state.tourConfirmed).length;
+  const conv    = rows.filter((r) => r.state.stage === "booked" || r.state.stage === "payment").length;
+
+  const cards: { label: string; value: number; key: PipelineFilter; cls: string }[] = [
+    { label: "Active",    value: total,   key: null,        cls: "text-foreground border-border" },
+    { label: "Overdue",   value: overdue, key: "overdue",   cls: "text-destructive border-destructive/40" },
+    { label: "Tours",     value: tours,   key: "tours",     cls: "text-warning border-warning/40" },
+    { label: "Closing",   value: conv,    key: "conversion",cls: "text-success border-success/40" },
+  ];
+
+  return (
+    <div className="grid grid-cols-4 gap-1 px-2 pt-2 pb-1">
+      {cards.map((c) => (
+        <button
+          key={c.label}
+          onClick={() => onFilter(activeFilter === c.key ? null : c.key)}
+          className={cn(
+            "rounded border p-1.5 text-left transition hover:bg-muted/50",
+            c.cls,
+            activeFilter === c.key && "bg-muted ring-1 ring-primary",
+          )}
+        >
+          <div className="text-lg font-bold tabular-nums leading-none">{c.value}</div>
+          <div className="text-[9px] uppercase tracking-wider mt-0.5 opacity-70">{c.label}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ─────────────── Active 13 ─────────────── */
 
 export function ActiveList({
   list, meta, selected, onSelect, meId,
 }: { list: MovementState[]; meta: Meta; selected: string | null; onSelect: (u: string) => void; meId: string }) {
-  const rows = useMemo(() => active13(list, meId), [list, meId]);
+  const allRows = useMemo(() => active13(list, meId), [list, meId]);
+  const [pipeFilter, setPipeFilter] = useState<PipelineFilter>(null);
+  const [lateOnly, setLateOnly] = useState(false);
+
+  const rows = useMemo(() => {
+    let r = allRows;
+    if (lateOnly || pipeFilter === "overdue") {
+      r = r.filter((x) => x.health === "breached" || x.health === "action-due");
+    } else if (pipeFilter === "tours") {
+      r = r.filter((x) => x.state.tourAt && !x.state.tourConfirmed);
+    } else if (pipeFilter === "conversion") {
+      r = r.filter((x) => x.state.stage === "booked" || x.state.stage === "payment");
+    }
+    return r;
+  }, [allRows, pipeFilter, lateOnly]);
+
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+      <PipelineBar
+        rows={allRows}
+        activeFilter={lateOnly ? "overdue" : pipeFilter}
+        onFilter={(f) => { setPipeFilter(f); setLateOnly(false); }}
+      />
+      <div className="px-3 py-2 border-y border-border flex items-center justify-between">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-          Active 13 — work top to bottom
+          Work queue — {rows.length} leads
         </span>
-        <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => { setLateOnly((v) => !v); setPipeFilter(null); }}
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition",
+              lateOnly
+                ? "bg-destructive/15 text-destructive border-destructive/40"
+                : "text-muted-foreground border-border hover:border-destructive/30",
+            )}
+          >
+            <Flame className="h-3 w-3" /> Late only
+          </button>
+          <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
+        </div>
       </div>
-      <div className="divide-y divide-border max-h-[62vh] overflow-auto">
-        {rows.map((r, idx) => <ActiveRow key={r.ulid} n={idx + 1} r={r} meta={meta}
-          active={selected === r.ulid} onSelect={onSelect} />)}
+      <div className="divide-y divide-border max-h-[52vh] overflow-auto">
+        {rows.map((r, idx) => (
+          <ActiveRow key={r.ulid} n={idx + 1} r={r} meta={meta}
+            active={selected === r.ulid} onSelect={onSelect} />
+        ))}
         {!rows.length && (
           <div className="p-6 text-center text-sm text-muted-foreground">Queue clear.</div>
         )}
@@ -245,33 +326,142 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
   n: number; r: Scored; meta: Meta; active: boolean; onSelect: (u: string) => void;
 }) {
   const info = meta.get(r.ulid);
+  const mv = useMovement();
+  const [dqOpen, setDqOpen] = useState(false);
+  const [reassigning, setReassigning] = useState(false);
+
+  const overdueMins = r.state.nextAction
+    ? Math.max(0, Math.round((Date.now() - +new Date(r.state.nextAction.dueAt)) / 60000))
+    : 0;
+
+  const isLate = r.health === "breached" || r.health === "action-due";
+
+  const handleWAInvite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const name  = info?.name ?? "there";
+    const phone = (info?.phone ?? "").replace(/\D/g, "");
+    const prop  = r.state.tourProperty ?? "our property";
+    const dt    = r.state.tourAt ? new Date(r.state.tourAt).toLocaleString() : "soon";
+    const msg   = `Hi ${name}! You are confirmed for a tour at *${prop}* on ${dt}. Looking forward to showing you around! - Team Gharpayy`;
+    navigator.clipboard.writeText(msg).then(() => toast.success("WA invite copied!"));
+    if (phone) window.open(`https://wa.me/91${phone}`, "_blank");
+    mv.log(r.ulid, "note", "WA invite copied and opened");
+  };
+
+  const handleDQ = (e: React.MouseEvent, reason: string) => {
+    e.stopPropagation();
+    mv.exit(r.ulid, "no-response", `1-click DQ: ${reason}`);
+    mv.log(r.ulid, "note", `Fast DQ: ${reason}`);
+    toast.success(`Disqualified — ${reason}`);
+    setDqOpen(false);
+  };
+
+  const handleReassign = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    e.stopPropagation();
+    const op = OPERATORS.find((o) => o.id === e.target.value);
+    if (!op) return;
+    mv.transferPrimary(r.ulid, op);
+    toast.success(`Reassigned to ${op.name}`);
+    setReassigning(false);
+  };
+
   return (
-    <button onClick={() => onSelect(r.ulid)}
-      className={cn("w-full text-left px-3 py-2.5 flex items-start gap-3 hover:bg-muted/50 transition",
-        active && "bg-primary/5")}>
-      <span className="text-xs font-mono text-muted-foreground w-5 pt-0.5">{n}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm truncate">{info?.name ?? r.ulid}</span>
-          <DraftChip code={r.state.crmDraft} />
-          {r.state.currentOperatorName && (
-            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-              <Lock className="h-3 w-3" />{r.state.currentOperatorName}
-            </span>
+    <div className={cn("group relative border-l-2 transition",
+      isLate ? "border-destructive" : "border-transparent",
+      active && "bg-primary/5")}>
+      <button
+        onClick={() => onSelect(r.ulid)}
+        className="w-full text-left px-3 py-2.5 flex items-start gap-3 hover:bg-muted/50 transition"
+      >
+        <span className="text-xs font-mono text-muted-foreground w-5 pt-0.5">{n}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm truncate">{info?.name ?? r.ulid}</span>
+            <DraftChip code={r.state.crmDraft} />
+            {r.state.currentOperatorName && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                <Lock className="h-3 w-3" />{r.state.currentOperatorName}
+              </span>
+            )}
+            {overdueMins > 0 && (
+              <span className="text-[9px] font-bold bg-destructive/15 text-destructive px-1 py-0.5 rounded">
+                LATE {overdueMins}m
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-muted-foreground truncate">
+            {r.state.stage} · {r.reason}
+            {r.state.nextAction && ` · next: ${r.state.nextAction.kind}`}
+          </div>
+        </div>
+        <div className="text-right shrink-0 space-y-1">
+          <Badge className={cn("text-[10px]", r.bucket === "P0" ? "bg-destructive text-destructive-foreground" : "")}>
+            {r.bucket}
+          </Badge>
+          <div className={cn("text-[10px] px-1.5 py-0.5 rounded", HEALTH_CLS[r.health])}>{r.health}</div>
+        </div>
+      </button>
+
+      {/* ── Inline action bar (revealed on row hover) ── */}
+      <div className="hidden group-hover:flex items-center gap-1.5 px-3 pb-2 -mt-1">
+        {/* Fast Disqualify */}
+        <div className="relative">
+          <button
+            onClick={(e) => { e.stopPropagation(); setDqOpen((v) => !v); }}
+            className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/30 transition"
+          >
+            <Zap className="h-3 w-3" /> DQ <ChevronDown className="h-2.5 w-2.5" />
+          </button>
+          {dqOpen && (
+            <div className="absolute left-0 top-6 z-30 rounded border border-border bg-popover shadow-lg min-w-[150px]">
+              {["Cut Call", "Wrong Number", "Not Interested"].map((reason) => (
+                <button key={reason} onClick={(e) => handleDQ(e, reason)}
+                  className="block w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition">
+                  {reason}
+                </button>
+              ))}
+            </div>
           )}
         </div>
-        <div className="text-[11px] text-muted-foreground truncate">
-          {r.state.stage} · {r.reason}
-          {r.state.nextAction && ` · next: ${r.state.nextAction.kind}`}
-        </div>
+
+        {/* Copy WA Invite */}
+        <button
+          onClick={handleWAInvite}
+          className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-success/10 text-success hover:bg-success/20 border border-success/30 transition"
+        >
+          <Copy className="h-3 w-3" /> WA Invite
+        </button>
+
+        {/* Quick Reassign */}
+        {reassigning ? (
+          <select
+            autoFocus
+            className="text-[10px] border border-border rounded px-1 py-0.5 bg-background"
+            defaultValue=""
+            onBlur={() => setReassigning(false)}
+            onChange={handleReassign}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <option value="" disabled>Pick operator…</option>
+            {OPERATORS.map((op) => (
+              <option key={op.id} value={op.id}>{op.name}</option>
+            ))}
+          </select>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); setReassigning(true); }}
+            className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground hover:bg-muted/60 border border-border transition"
+          >
+            <UserCheck className="h-3 w-3" /> Reassign
+          </button>
+        )}
       </div>
-      <div className="text-right shrink-0 space-y-1">
-        <Badge className={cn("text-[10px]", r.bucket === "P0" ? "bg-destructive text-destructive-foreground" : "")}>
-          {r.bucket}
-        </Badge>
-        <div className={cn("text-[10px] px-1.5 py-0.5 rounded", HEALTH_CLS[r.health])}>{r.health}</div>
-      </div>
-    </button>
+
+      {/* Backdrop to close DQ popup */}
+      {dqOpen && (
+        <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setDqOpen(false); }} />
+      )}
+    </div>
   );
 }
 
@@ -556,6 +746,63 @@ function Kpi({ label, value, icon: Icon, tone }: {
       <div className={cn("text-xl font-semibold mt-0.5",
         tone === "success" && "text-success", tone === "destructive" && "text-destructive")}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────── Audit Trail Panel ─────────────── */
+
+export function AuditTrailPanel({ ulid }: { ulid: string | null }) {
+  const events = useMovement((s) => s.events);
+  const [copied, setCopied] = useState(false);
+
+  const rows = useMemo(() => {
+    const src = ulid ? events.filter((e) => e.ulid === ulid) : events.slice(-50);
+    return src.slice().reverse();
+  }, [events, ulid]);
+
+  const exportLog = () => {
+    const text = rows
+      .map((e) =>
+        `[${new Date(e.ts).toLocaleString()}] ${e.actorName ?? "system"} — ${e.kind}: ${e.text}`
+      )
+      .join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success("Audit log copied to clipboard");
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
+          <MessageSquare className="h-3 w-3" />
+          {ulid ? "Lead Audit Trail" : "All Events (last 50)"}
+        </span>
+        <button
+          onClick={exportLog}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-border hover:bg-muted transition"
+        >
+          <Copy className="h-3 w-3" />
+          {copied ? "Copied!" : "Export"}
+        </button>
+      </div>
+      <div className="divide-y divide-border max-h-48 overflow-auto">
+        {rows.map((e, i) => (
+          <div key={i} className="px-3 py-1.5 text-[11px] flex items-start gap-2">
+            <span className="text-muted-foreground whitespace-nowrap tabular-nums shrink-0">
+              {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            <span className="font-medium text-primary/80 shrink-0">{e.actorName ?? "system"}</span>
+            <span className="text-muted-foreground truncate">{e.kind}: {e.text}</span>
+          </div>
+        ))}
+        {!rows.length && (
+          <div className="p-4 text-center text-xs text-muted-foreground">No events recorded yet.</div>
+        )}
       </div>
     </div>
   );

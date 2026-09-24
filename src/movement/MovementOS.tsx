@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMovementSync } from "./bridge";
 import { seedMovement } from "./seed";
 import {
-  ActiveList, Dashboards, DraftingPanel, JourneyTimeline, UnmatchedQueue, WorkPanel,
+  ActiveList, AuditTrailPanel, Dashboards, DraftingPanel, JourneyTimeline, UnmatchedQueue, WorkPanel,
 } from "./components";
 
 export function MovementOS() {
@@ -45,6 +45,7 @@ export function MovementOS() {
             <div className="space-y-3">
               <WorkPanel ulid={selected} meta={nameOf} />
               <JourneyTimeline ulid={selected} />
+              <AuditTrailPanel ulid={selected} />
             </div>
           </div>
         </TabsContent>
