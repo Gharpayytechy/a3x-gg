@@ -217,23 +217,103 @@ export function DraftingPanel({ list, meta }: { list: MovementState[]; meta: Met
 }
 
 
+/* ─────────────── Pipeline Summary Bar ─────────────── */
+
+type PipelineFilter = "overdue" | "tours" | "conversion" | null;
+
+function PipelineBar({
+  rows,
+  activeFilter,
+  onFilter,
+}: {
+  rows: Scored[];
+  activeFilter: PipelineFilter;
+  onFilter: (f: PipelineFilter) => void;
+}) {
+  const total   = rows.length;
+  const overdue = rows.filter((r) => r.health === "breached" || r.health === "action-due").length;
+  const tours   = rows.filter((r) => r.state.tourAt && !r.state.tourConfirmed).length;
+  const conv    = rows.filter((r) => r.state.stage === "booked" || r.state.stage === "payment").length;
+
+  const cards: { label: string; value: number; key: PipelineFilter; cls: string }[] = [
+    { label: "Active",    value: total,   key: null,        cls: "text-foreground border-border" },
+    { label: "Overdue",   value: overdue, key: "overdue",   cls: "text-destructive border-destructive/40" },
+    { label: "Tours",     value: tours,   key: "tours",     cls: "text-warning border-warning/40" },
+    { label: "Closing",   value: conv,    key: "conversion",cls: "text-success border-success/40" },
+  ];
+
+  return (
+    <div className="grid grid-cols-4 gap-1 px-2 pt-2 pb-1">
+      {cards.map((c) => (
+        <button
+          key={c.label}
+          onClick={() => onFilter(activeFilter === c.key ? null : c.key)}
+          className={cn(
+            "rounded border p-1.5 text-left transition hover:bg-muted/50",
+            c.cls,
+            activeFilter === c.key && "bg-muted ring-1 ring-primary",
+          )}
+        >
+          <div className="text-lg font-bold tabular-nums leading-none">{c.value}</div>
+          <div className="text-[9px] uppercase tracking-wider mt-0.5 opacity-70">{c.label}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ─────────────── Active 13 ─────────────── */
 
 export function ActiveList({
   list, meta, selected, onSelect, meId,
 }: { list: MovementState[]; meta: Meta; selected: string | null; onSelect: (u: string) => void; meId: string }) {
-  const rows = useMemo(() => active13(list, meId), [list, meId]);
+  const allRows = useMemo(() => active13(list, meId), [list, meId]);
+  const [pipeFilter, setPipeFilter] = useState<PipelineFilter>(null);
+  const [lateOnly, setLateOnly] = useState(false);
+
+  const rows = useMemo(() => {
+    let r = allRows;
+    if (lateOnly || pipeFilter === "overdue") {
+      r = r.filter((x) => x.health === "breached" || x.health === "action-due");
+    } else if (pipeFilter === "tours") {
+      r = r.filter((x) => x.state.tourAt && !x.state.tourConfirmed);
+    } else if (pipeFilter === "conversion") {
+      r = r.filter((x) => x.state.stage === "booked" || x.state.stage === "payment");
+    }
+    return r;
+  }, [allRows, pipeFilter, lateOnly]);
+
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+      <PipelineBar
+        rows={allRows}
+        activeFilter={lateOnly ? "overdue" : pipeFilter}
+        onFilter={(f) => { setPipeFilter(f); setLateOnly(false); }}
+      />
+      <div className="px-3 py-2 border-y border-border flex items-center justify-between">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-          Active 13 — work top to bottom
+          Work queue — {rows.length} leads
         </span>
-        <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => { setLateOnly((v) => !v); setPipeFilter(null); }}
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition",
+              lateOnly
+                ? "bg-destructive/15 text-destructive border-destructive/40"
+                : "text-muted-foreground border-border hover:border-destructive/30",
+            )}
+          >
+            <Flame className="h-3 w-3" /> Late only
+          </button>
+          <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
+        </div>
       </div>
-      <div className="divide-y divide-border max-h-[62vh] overflow-auto">
-        {rows.map((r, idx) => <ActiveRow key={r.ulid} n={idx + 1} r={r} meta={meta}
-          active={selected === r.ulid} onSelect={onSelect} />)}
+      <div className="divide-y divide-border max-h-[52vh] overflow-auto">
+        {rows.map((r, idx) => (
+          <ActiveRow key={r.ulid} n={idx + 1} r={r} meta={meta}
+            active={selected === r.ulid} onSelect={onSelect} />
+        ))}
         {!rows.length && (
           <div className="p-6 text-center text-sm text-muted-foreground">Queue clear.</div>
         )}
