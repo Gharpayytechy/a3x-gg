@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, Clock, Flame, Lock, MessageSquare,
-  Phone, Play, RefreshCw, Timer, TrendingDown, Unlock, Users,
+  AlertTriangle, CheckCircle2, ChevronDown, Clock, Copy, Flame,
+  Lock, MessageSquare, Phone, Play, RefreshCw, Timer, TrendingDown,
+  Unlock, UserCheck, Users, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useMovement } from "./store";
 import { active13, drafting30, rank, type Scored } from "./priority";
 import { funnel, leaks, lossReasons, operatorBoard, totals } from "./metrics";
-import { DRAFT_META, PRIORITY_LABEL, type DraftCode, type MovementState } from "./types";
+import { DRAFT_META, OPERATORS, PRIORITY_LABEL, type DraftCode, type MovementState } from "./types";
 
 type Meta = Map<string, { name: string; phone: string; area: string }>;
 
