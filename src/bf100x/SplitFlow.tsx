@@ -119,6 +119,14 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
 
   const lead = leads.find((l) => l.id === leadId) ?? queue[0];
 
+  const isDisqualified = !!lead && (lead.stage === "Closed / Disqualified" || !!lead.closedReason || !!lead.f?.["disqualifyReason"]);
+
+  useEffect(() => {
+    if (isDisqualified && aiInsightOpen) {
+      setAiInsightOpen(false);
+    }
+  }, [isDisqualified, aiInsightOpen]);
+
   // Lock leadId to current lead so disqualifying a lead keeps the user on the current lead
   useEffect(() => {
     if (lead && !leadId) setLeadId(lead.id);
@@ -507,7 +515,7 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
           {lead && lead.stage !== "Closed / Disqualified" ? (<WhatsAppDraftPanel lead={lead} />) : null}
         </>
       )}
-      {aiInsightOpen && lead && (
+      {aiInsightOpen && lead && !isDisqualified && (
         <ExpertAIFullScreen lead={lead} onClose={() => setAiInsightOpen(false)} />
       )}
 

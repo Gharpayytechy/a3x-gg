@@ -1,14 +1,14 @@
-﻿// AI Insights Card â€” Expert AI button integration.
+// AI Insights Card - Expert AI button integration.
 // Produces a lead profile summary + recommended next step from captured lead data.
-// No external API; all inference is local/deterministic from lead fields.
+// 100% English only - no corrupted characters.
 
 import { useState, useCallback } from "react";
-import { Bot, X } from "lucide-react";
+import { Bot, X, ShieldAlert, Check, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { FlowLead } from "@/bookingflow/types";
 
-// â”€â”€â”€ Weekly credit helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Weekly credit helpers ---
 
 const CREDIT_KEY_PREFIX = "gharpayy_ai_credits";
 const MAX_WEEKLY_CREDITS = 5;
@@ -44,7 +44,7 @@ export function consumeCredit(userId: string): boolean {
   }
 }
 
-// â”€â”€â”€ Local analysis engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Local analysis engine ---
 
 interface AIInsight {
   profile: string;
@@ -82,11 +82,11 @@ function analyzeLeadLocally(lead: FlowLead): AIInsight {
   if (area) profileParts.push(`looking in **${area}**`);
   if (roomType) profileParts.push(`for a **${roomType}**`);
   if (budget) profileParts.push(`budget **${budget}**`);
-  if (moveIn) profileParts.push(`move-in ~**${moveIn}**`);
+  if (moveIn) profileParts.push(`move-in around **${moveIn}**`);
   if (tours > 0) profileParts.push(`**${tours} tour(s)** done`);
   if (callCount > 0) profileParts.push(`**${callCount} call(s)** completed`);
   if (channel) profileParts.push(`via **${channel}**`);
-  if (onWhatsapp) profileParts.push(`WA: ${onWhatsapp}`);
+  if (onWhatsapp) profileParts.push(`WhatsApp: ${onWhatsapp}`);
   if (recentNote) profileParts.push(`Note: "${recentNote.slice(0, 80)}"`);
 
   const profile =
@@ -98,40 +98,40 @@ function analyzeLeadLocally(lead: FlowLead): AIInsight {
   if (hasCheckin) {
     nextStep = "Lead is CHECKED IN. Confirm room key handover and collect feedback.";
   } else if (property && bed) {
-    nextStep = `Property & bed locked (${property} â€“ ${bed}). Proceed to tour scheduling or close commitment today.`;
+    nextStep = `Property and bed locked (${property} - ${bed}). Proceed to tour scheduling or close commitment today.`;
   } else if (tours > 0 && !property) {
-    nextStep = `Tour done but no property locked. Follow up today: "Does ${area || "our property"} fit your requirement?" Present 2 options with prices.`;
+    nextStep = `Tour completed but no property locked. Follow up today: "Does ${area || "our property"} fit your requirement?" Present 2 options with prices.`;
   } else if (budget && area && !tours) {
-    nextStep = `Budget (${budget}) and area (${area}) known. Share 2â€“3 matching properties${roomType ? ` with ${roomType}` : ""} via WhatsApp and book a site visit.`;
+    nextStep = `Budget (${budget}) and area (${area}) known. Share 2-3 matching properties${roomType ? ` with ${roomType}` : ""} via WhatsApp and book a site visit.`;
   } else if (budget && !area) {
-    nextStep = `Budget captured (${budget}) but area unknown. Ask: "Which locality is most convenient for your office/college?"`;
+    nextStep = `Budget captured (${budget}) but area unknown. Ask: "Which locality is most convenient for your office or college?"`;
   } else if (!budget && area) {
-    nextStep = `Area (${area}) captured but no budget. Ask: "What monthly budget works for you?" â€” suggest ranges if they hesitate.`;
+    nextStep = `Area (${area}) captured but no budget. Ask: "What monthly budget works for you?" Suggest reasonable ranges if they hesitate.`;
   } else if (callCount > 2) {
     nextStep = "Multiple calls without closure. Offer a time-limited token discount or escalate to senior closer.";
   } else if (isLate) {
-    nextStep = `Action overdue since ${new Date(lead.nextActionAt!).toLocaleDateString()}. CALL NOW â€” establish intent and mark HOT or warm.`;
+    nextStep = `Action overdue since ${new Date(lead.nextActionAt!).toLocaleDateString()}. CALL NOW - establish intent and mark HOT or warm.`;
   } else if (moveInSoon) {
     nextStep = `Move-in within 7 days (${moveIn}). Treat as HOT. Confirm room availability and send agreement link today.`;
   } else {
-    nextStep = "Capture: budget, move-in date, preferred area. These three fields unlock the full analysis.";
+    nextStep = "Capture budget, move-in date, and preferred area. These fields unlock full analysis.";
   }
 
   const tags: string[] = [];
-  if (urgencyLevel === "HIGH") tags.push("ðŸ”´ High priority");
-  if (urgencyLevel === "MEDIUM") tags.push("ðŸŸ¡ Medium priority");
-  if (urgencyLevel === "LOW") tags.push("ðŸŸ¢ Low priority");
+  if (urgencyLevel === "HIGH") tags.push("High priority");
+  if (urgencyLevel === "MEDIUM") tags.push("Medium priority");
+  if (urgencyLevel === "LOW") tags.push("Low priority");
   if (tours > 0) tags.push(`${tours} tour(s)`);
   if (callCount > 0) tags.push(`${callCount} call(s)`);
   if (property) tags.push(`${property}`);
   if (budget) tags.push(`${budget}`);
-  if (!lead.owner) tags.push("âš ï¸ Unowned");
-  if (isLate) tags.push("ðŸš¨ SLA breached");
+  if (!lead.owner) tags.push("Unowned");
+  if (isLate) tags.push("SLA breached");
 
   return { profile, nextStep, urgencyLevel, tags };
 }
 
-// â”€â”€â”€ AIInsightsCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- AIInsightsCard ---
 
 interface AIInsightsCardProps {
   lead: FlowLead;
@@ -167,7 +167,7 @@ export function AIInsightsCard({ lead, onDismiss }: AIInsightsCardProps) {
       </div>
 
       <div>
-        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">ðŸ“Š Profile Analysis</p>
+        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Profile Analysis</p>
         <p
           className="text-[11px] leading-relaxed"
           dangerouslySetInnerHTML={{ __html: insight.profile.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }}
@@ -175,7 +175,7 @@ export function AIInsightsCard({ lead, onDismiss }: AIInsightsCardProps) {
       </div>
 
       <div>
-        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">âš¡ Recommended Next Step</p>
+        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recommended Next Step</p>
         <p className="text-[11px] leading-relaxed font-medium">{insight.nextStep}</p>
       </div>
 
@@ -190,7 +190,7 @@ export function AIInsightsCard({ lead, onDismiss }: AIInsightsCardProps) {
   );
 }
 
-// â”€â”€â”€ ExpertAIButton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- ExpertAIButton ---
 
 interface ExpertAIButtonProps {
   userId: string;
@@ -201,33 +201,44 @@ interface ExpertAIButtonProps {
 }
 
 export function ExpertAIButton({ userId, lead, isActive, onActivate, onDeactivate }: ExpertAIButtonProps) {
-  const [credits, setCredits] = useState(() => getCreditsRemaining(userId));
-  const outOfCredits = credits <= 0;
-  const disabled = (outOfCredits || !lead) && !isActive;
+  const isDisqualified = !!lead && (lead.stage === "Closed / Disqualified" || !!lead.closedReason || !!lead.f?.["disqualifyReason"]);
+  const disabled = isDisqualified || (!lead && !isActive);
 
   const handleClick = useCallback(() => {
+    if (isDisqualified) return;
     if (isActive) { onDeactivate(); return; }
     if (disabled) return;
-    const ok = consumeCredit(userId);
-    if (ok) { setCredits((c) => Math.max(0, c - 1)); onActivate(); }
-  }, [isActive, disabled, userId, onActivate, onDeactivate]);
+    onActivate();
+  }, [isActive, disabled, isDisqualified, onActivate, onDeactivate]);
 
-  const label = isActive ? "Expert AI âœ“" : outOfCredits ? "Expert AI (0/5)" : `Expert AI (${credits}/5)`;
-  const title = outOfCredits && !isActive
-    ? "Weekly AI credits exhausted. Perform manual review."
-    : isActive ? "Click to dismiss AI analysis"
-    : `Use 1 credit to analyse this lead (${credits} left this week)`;
+  let label: string;
+  let title: string;
+
+  if (isDisqualified) {
+    label = "Expert AI (Disqualified)";
+    title = "Lead is disqualified. Revoke and re-open to use Expert AI.";
+  } else if (isActive) {
+    label = "Expert AI (Active)";
+    title = "Click to close AI analysis";
+  } else {
+    label = "Expert AI";
+    title = "Open full-screen AI analysis for this lead";
+  }
 
   return (
     <Button
       size="sm"
-      variant={isActive ? "default" : "outline"}
-      className="h-6 px-2 text-[10px]"
+      variant={isActive ? "default" : isDisqualified ? "ghost" : "outline"}
+      className={`h-6 px-2 text-[10px] ${isDisqualified ? "opacity-50 cursor-not-allowed text-muted-foreground" : ""}`}
       onClick={handleClick}
       disabled={disabled}
       title={title}
     >
-      <Bot className="mr-1 h-3 w-3" />
+      {isDisqualified ? (
+        <ShieldAlert className="mr-1 h-3 w-3 text-destructive" />
+      ) : (
+        <Bot className="mr-1 h-3 w-3" />
+      )}
       {label}
     </Button>
   );
