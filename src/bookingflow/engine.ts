@@ -26,7 +26,7 @@ export function health(l: FlowLead, nowMs = Date.now()): LeadHealth {
   const f = l.f ?? {};
   const step = currentStep(f);
   const p = progress(f);
-  const closed = l.stage === "CLOSED" || Boolean(l.closedReason);
+  const closed = l.stage === "CLOSED" || l.stage === "Closed / Disqualified" || Boolean(l.closedReason);
   const complete = !step;
   const signals: string[] = [];
 

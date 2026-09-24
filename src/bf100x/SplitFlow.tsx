@@ -23,6 +23,9 @@ import { ClosingDesk } from "./ClosingDesk";
 import { ContactActions } from "@/components/common/ContactActions";
 import { CloseCommitButton } from "@/components/commitments/CloseCommitButton";
 import { canonicalCustomerId } from "@/lib/canonical/customer-id";
+import { WhatsAppDraftPanel } from "./WhatsAppDraftPanel";
+import { AIInsightsCard, ExpertAIButton } from "./AIInsightsCard";
+import { ExpertAIFullScreen } from "./ExpertAIFullScreen";
 
 type Pane = "WORK" | "CAPTURED" | "MATCH" | "LABELS" | "CLOSING" | "QUEUE" | "DRAFTS";
 
@@ -98,6 +101,7 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
   const [due, setDue] = useState(() => new Date(Date.now() + 2 * 3_600_000).toISOString().slice(0, 16));
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aiInsightOpen, setAiInsightOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityType, setActivityType] = useState("Call completed");
   const [activityNote, setActivityNote] = useState("");
@@ -107,13 +111,26 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
   const queue = useMemo(() => {
     if (!mounted) return [];
     return leads
-      .filter((l) => l.stage !== "CLOSED" && l.f?.["checkinDay"] !== "CHECKED_IN")
+      .filter((l) => l.stage !== "CLOSED" && l.stage !== "Closed / Disqualified" && !l.closedReason && l.f?.["checkinDay"] !== "CHECKED_IN")
       .map((l) => ({ l, h: health(l) }))
       .sort((a, b) => Number(b.h.sla === "LATE") - Number(a.h.sla === "LATE") || b.h.signals.length - a.h.signals.length)
       .map(({ l }) => l);
   }, [leads, mounted]);
 
   const lead = leads.find((l) => l.id === leadId) ?? queue[0];
+
+  const isDisqualified = !!lead && (lead.stage === "Closed / Disqualified" || !!lead.closedReason || !!lead.f?.["disqualifyReason"]);
+
+  useEffect(() => {
+    if (isDisqualified && aiInsightOpen) {
+      setAiInsightOpen(false);
+    }
+  }, [isDisqualified, aiInsightOpen]);
+
+  // Lock leadId to current lead so disqualifying a lead keeps the user on the current lead
+  useEffect(() => {
+    if (lead && !leadId) setLeadId(lead.id);
+  }, [lead, leadId]);
 
   useEffect(() => {
     if (lead) setScreenId(currentScreen(lead.f ?? {}).id);
@@ -197,7 +214,7 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
               </div>
             )}
             <Button size="sm" variant={mode === "GUIDED" ? "default" : "outline"} className="h-6 px-2 text-[10px]" onClick={() => setMode("GUIDED")}>Understand</Button>
-            <Button size="sm" variant={mode === "EXPERT" ? "default" : "outline"} className="h-6 px-2 text-[10px]" onClick={() => setMode("EXPERT")}>Expert</Button>
+            <ExpertAIButton userId={me} lead={lead} isActive={aiInsightOpen && mode === "EXPERT"} onActivate={() => { setMode("EXPERT"); setAiInsightOpen(true); }} onDeactivate={() => setAiInsightOpen(false)} />
             <div className="relative">
               <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-label="Open app menu">
                 <Menu className="h-3 w-3" />
@@ -238,15 +255,23 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
               <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={nextCustomer}>Next<ArrowRight className="ml-1 h-3 w-3" /></Button>
             </div>
           </div>
-          {mounted && h && (
+          {mounted && (
             <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
-              <Badge variant="outline" className="text-[10px]">{h.stepNo}. {h.complete ? "Checked in" : h.step?.title}</Badge>
-              <Badge variant={lead.owner ? "secondary" : "destructive"} className="text-[10px]">{lead.owner ?? "no owner"}</Badge>
-              <Badge variant="outline" className="text-[10px]">waiting on {h.waitingOn}</Badge>
-              <Badge variant={lead.nextAction ? "outline" : "destructive"} className="text-[10px]">{lead.nextAction ?? "no next step"}</Badge>
-              <Badge variant={lead.nextActionAt && h.sla !== "LATE" ? "outline" : "destructive"} className="text-[10px]">
-                {lead.nextActionAt ? (h.sla === "LATE" ? `late ${fmtMins(h.minutesLate)}` : new Date(lead.nextActionAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : "no deadline"}
-              </Badge>
+              {(lead.stage === "Closed / Disqualified" || lead.closedReason) ? (
+                <Badge variant="destructive" className="text-[10px]">
+                  Closed / Disqualified: {lead.closedReason || lead.f?.disqualifyReason || "Disqualified"}
+                </Badge>
+              ) : h && (
+                <>
+                  <Badge variant="outline" className="text-[10px]">{h.stepNo}. {h.complete ? "Checked in" : h.step?.title}</Badge>
+                  <Badge variant={lead.owner ? "secondary" : "destructive"} className="text-[10px]">{lead.owner ?? "no owner"}</Badge>
+                  <Badge variant="outline" className="text-[10px]">waiting on {h.waitingOn}</Badge>
+                  <Badge variant={lead.nextAction ? "outline" : "destructive"} className="text-[10px]">{lead.nextAction ?? "no next step"}</Badge>
+                  <Badge variant={lead.nextActionAt && h.sla !== "LATE" ? "outline" : "destructive"} className="text-[10px]">
+                    {lead.nextActionAt ? (h.sla === "LATE" ? `late ${fmtMins(h.minutesLate)}` : new Date(lead.nextActionAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : "no deadline"}
+                  </Badge>
+                </>
+              )}
             </div>
           )}
           {/* Copy the number, dial it, or open the WhatsApp chat — always labelled */}
@@ -269,7 +294,7 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
       )}
 
       {/* What is already filled — pinned, readable while answering */}
-      {lead && <KnownStrip lead={lead} />}
+            {lead && <KnownStrip lead={lead} />}
 
       {/* Pane tabs — every tool of the funnel, inside the split panel */}
       <div className="shrink-0 overflow-x-auto border-b px-3 py-1.5">
@@ -487,13 +512,13 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
             onPointerDown={() => setDragging(true)}
             className={cn("w-1.5 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary", dragging && "bg-primary")}
           />
-          <div className="flex min-w-0 flex-1 items-center justify-center bg-muted/30 p-4 text-center">
-            <p className="text-[11px] text-muted-foreground">
-              Keep WhatsApp Web open in this space.<br />Drag the grey bar, or use the width buttons, to set the sizes you want.
-            </p>
-          </div>
+          {lead && lead.stage !== "Closed / Disqualified" ? (<WhatsAppDraftPanel lead={lead} />) : null}
         </>
       )}
+      {aiInsightOpen && lead && !isDisqualified && (
+        <ExpertAIFullScreen lead={lead} onClose={() => setAiInsightOpen(false)} />
+      )}
+
     </div>
   );
 }
