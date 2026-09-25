@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, Clock, Copy, Flame,
+  AlertTriangle, Bot, CheckCircle2, ChevronDown, Clock, Copy, Flame,
   Lock, MessageSquare, Phone, Play, RefreshCw, Timer, TrendingDown,
   Unlock, UserCheck, Users, Zap,
 } from "lucide-react";
@@ -13,6 +13,7 @@ import { useMovement } from "./store";
 import { active13, drafting30, rank, type Scored } from "./priority";
 import { funnel, leaks, lossReasons, operatorBoard, totals } from "./metrics";
 import { DRAFT_META, OPERATORS, PRIORITY_LABEL, type DraftCode, type MovementState } from "./types";
+import { scanMovementRisks } from "./MovementAIEngine";
 
 type Meta = Map<string, { name: string; phone: string; area: string }>;
 
@@ -345,8 +346,32 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
 }) {
   const info = meta.get(r.ulid);
   const mv = useMovement();
+  const events = useMovement((s) => s.events);
   const [dqOpen, setDqOpen] = useState(false);
   const [reassigning, setReassigning] = useState(false);
+
+  // ── AI risk score for this row ───────────────────────────────────────────
+  const aiScore = useMemo(() => {
+    const results = scanMovementRisks(
+      { [r.ulid]: r.state },
+      events.filter((e) => e.ulid === r.ulid),
+      meta,
+    );
+    return results[0] ?? null;
+  }, [r.ulid, r.state, events, meta]);
+
+  const handleAINudge = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!aiScore) return;
+    const phone = (info?.phone ?? "").replace(/\D/g, "");
+    const msg = aiScore.recoveryMsg;
+    navigator.clipboard.writeText(msg).catch(() => {});
+    if (phone) window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    mv.log(r.ulid, "message-sent", `AI Nudge sent (${aiScore.recoveryKind}) · churn risk ${aiScore.churnRiskPct}%`, {
+      actorId: "ai-engine", actorName: "AI Engine",
+    });
+    toast.success(`🤖 AI Nudge sent to ${info?.name ?? r.ulid}`);
+  };
 
   const overdueMins = r.state.nextAction
     ? Math.max(0, Math.round((Date.now() - +new Date(r.state.nextAction.dueAt)) / 60000))
@@ -418,6 +443,18 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
                 LATE BY {overdueMins || 15} MINS
               </span>
             )}
+            {aiScore && aiScore.churnRiskPct >= 40 && (
+              <span
+                className={cn(
+                  "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
+                  aiScore.churnRiskPct >= 70
+                    ? "bg-destructive/15 text-destructive"
+                    : "bg-warning/15 text-warning",
+                )}
+              >
+                ⚠️ Churn {aiScore.churnRiskPct}% · {aiScore.signals[0]?.kind.replace(/-/g, " ")}
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-muted-foreground truncate mt-0.5">
             {r.state.stage} · {r.reason}
@@ -469,6 +506,18 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
           <MessageSquare className="h-3 w-3" />
           <span>💬 WhatsApp</span>
         </button>
+
+        {/* 🤖 AI Nudge — only when AI has a signal */}
+        {aiScore && aiScore.tier !== "ACTIVE_NURTURE" && (
+          <button
+            type="button"
+            onClick={handleAINudge}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary hover:bg-primary/20 border border-primary/30 transition shadow-2xs"
+          >
+            <Bot className="h-3 w-3" />
+            <span>🤖 AI Nudge</span>
+          </button>
+        )}
 
         {/* Quick Reassign */}
         {reassigning ? (

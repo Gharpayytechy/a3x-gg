@@ -6,6 +6,7 @@ import { seedMovement } from "./seed";
 import {
   ActiveList, AuditTrailPanel, Dashboards, DraftingPanel, JourneyTimeline, UnmatchedQueue, WorkPanel,
 } from "./components";
+import { MovementAICopilot } from "./MovementAICopilot";
 
 export function MovementOS() {
   useEffect(() => { seedMovement(); }, []);
@@ -29,6 +30,8 @@ export function MovementOS() {
           </p>
         </div>
       </div>
+
+      <MovementAICopilot meta={nameOf} />
 
       <Tabs defaultValue="work">
         <TabsList>
