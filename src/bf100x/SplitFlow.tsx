@@ -26,6 +26,7 @@ import { canonicalCustomerId } from "@/lib/canonical/customer-id";
 import { WhatsAppDraftPanel } from "./WhatsAppDraftPanel";
 import { AIInsightsCard, ExpertAIButton } from "./AIInsightsCard";
 import { ExpertAIFullScreen } from "./ExpertAIFullScreen";
+import { AICopilotBar } from "./AICopilotBar";
 
 type Pane = "WORK" | "CAPTURED" | "MATCH" | "LABELS" | "CLOSING" | "QUEUE" | "DRAFTS";
 
@@ -401,15 +402,18 @@ export function SplitFlow({ embedded = false, focus, panelOnly = false }: { embe
         ) : !lead ? (
           <p className="pt-10 text-center text-sm text-muted-foreground">Nothing left in the queue — every customer is closed or checked in.</p>
         ) : pane === "WORK" ? (
-          <ScreenPanel
-            lead={lead}
-            screen={screen}
-            expert={mode === "EXPERT"}
-            canPrev={idx > 0}
-            canNext={idx < SCREENS.length - 1}
-            onPrev={() => step(-1)}
-            onNext={() => step(1)}
-          />
+          <>
+            <AICopilotBar lead={lead} />
+            <ScreenPanel
+              lead={lead}
+              screen={screen}
+              expert={mode === "EXPERT"}
+              canPrev={idx > 0}
+              canNext={idx < SCREENS.length - 1}
+              onPrev={() => step(-1)}
+              onNext={() => step(1)}
+            />
+          </>
         ) : pane === "MATCH" ? (
           <PropertyMatch lead={lead} />
         ) : pane === "LABELS" ? (

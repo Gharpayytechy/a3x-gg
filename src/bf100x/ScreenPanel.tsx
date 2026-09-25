@@ -14,6 +14,7 @@ import type { FlowLead } from "@/bookingflow/types";
 import { useBookingFlow } from "@/bookingflow/store";
 import { SCREENS, currentScreen, screenIndex, screenProgress } from "./screens";
 import type { Screen } from "./screens";
+import { extractLeadInferences } from "./AIEngine";
 
 const inputType = (kind: JStep["kind"] | "TEXT" | "NUMBER" | "DATE" | "DATETIME") =>
   kind === "DATE" ? "date" : kind === "DATETIME" ? "datetime-local" : kind === "NUMBER" ? "number" : "text";
@@ -195,7 +196,14 @@ export function ScreenPanel({
     saveAndNext();
   }
 
-  // Keyboard Hotkeys: 1-5 for options on active step, Enter / Cmd+Enter for Next, arrows for screens
+  const handleAutoPilot = useCallback(() => {
+    const inferred = extractLeadInferences(lead);
+    const count = Object.keys(inferred).length;
+    editFields(lead.id, inferred, "AI Auto-Pilot Inferred from chat history");
+    toast.success(`🤖 AI Auto-Pilot: Inferred ${count} fields automatically!`);
+  }, [lead, editFields]);
+
+  // Keyboard Hotkeys: 1-5 for options on active step, A for Auto-Pilot, D for DQ, Enter for Next, arrows for screens
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const el = document.activeElement as HTMLElement | null;
@@ -222,6 +230,20 @@ export function ScreenPanel({
         return;
       }
 
+      // Hotkey 'a' or 'A' for Auto-Pilot
+      if (!typing && !isDisqualified && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        handleAutoPilot();
+        return;
+      }
+
+      // Hotkey 'd' or 'D' for Fast Disqualify Toggle
+      if (!typing && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        setIsDisqualifying((v) => !v);
+        return;
+      }
+
       // Hotkeys 1-5 for choice options on active step
       if (!typing && !isDisqualified && !isDisqualifying && ["1", "2", "3", "4", "5"].includes(e.key)) {
         const activeStep = screen.steps.find((s) => s.key === activeStepKey) || screen.steps.find((s) => !isStepDone(f, s));
@@ -237,7 +259,7 @@ export function ScreenPanel({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveAndNext, canPrev, onPrev, activeStepKey, screen.steps, f, isDisqualified, isDisqualifying]);
+  }, [saveAndNext, canPrev, onPrev, activeStepKey, screen.steps, f, isDisqualified, isDisqualifying, handleAutoPilot]);
 
   const nav = (
     <div className="flex items-center gap-1.5">
@@ -252,7 +274,7 @@ export function ScreenPanel({
 
   return (
     <Card className="p-3.5 space-y-3" ref={rootRef}>
-      {/* Header bar with Efficiency Badge & Fast Disqualify Trigger */}
+      {/* Header bar with Efficiency Badge, Auto-Pilot & Fast Disqualify Trigger */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="text-[10px] font-medium">Screen {idx + 1}/{SCREENS.length}</Badge>
@@ -263,10 +285,18 @@ export function ScreenPanel({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-medium">
-            <Sparkles className="h-3 w-3 text-emerald-500" />
-            <span>2 Clicks vs 12 Baseline</span>
-          </div>
+          {!isDisqualified && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-[11px] font-semibold text-primary border-primary/40 bg-primary/5 hover:bg-primary/15 gap-1"
+              onClick={handleAutoPilot}
+              title="Shortcut: Press 'A'"
+            >
+              <Sparkles className="h-3 w-3 text-amber-500" />
+              <span>🤖 Auto-Pilot (A)</span>
+            </Button>
+          )}
 
           <Button
             size="sm"
@@ -278,9 +308,10 @@ export function ScreenPanel({
                 : "text-destructive hover:bg-destructive/10"
             )}
             onClick={() => setIsDisqualifying((v) => !v)}
+            title="Shortcut: Press 'D'"
           >
             <Zap className="mr-1 h-3 w-3 text-destructive" />
-            ⚡ Fast Disqualify / Call Cut
+            ⚡ Fast DQ (D)
           </Button>
 
           {nav}
