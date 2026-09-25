@@ -271,10 +271,18 @@ export function ActiveList({
   const [pipeFilter, setPipeFilter] = useState<PipelineFilter>(null);
   const [lateOnly, setLateOnly] = useState(false);
 
+  const overdueCount = useMemo(() => {
+    return allRows.filter((x) =>
+      x.health === "breached" || x.health === "action-due" || (x.state.nextAction && Date.now() > +new Date(x.state.nextAction.dueAt))
+    ).length;
+  }, [allRows]);
+
   const rows = useMemo(() => {
     let r = allRows;
     if (lateOnly || pipeFilter === "overdue") {
-      r = r.filter((x) => x.health === "breached" || x.health === "action-due");
+      r = r.filter((x) =>
+        x.health === "breached" || x.health === "action-due" || (x.state.nextAction && Date.now() > +new Date(x.state.nextAction.dueAt))
+      );
     } else if (pipeFilter === "tours") {
       r = r.filter((x) => x.state.tourAt && !x.state.tourConfirmed);
     } else if (pipeFilter === "conversion") {
@@ -284,27 +292,35 @@ export function ActiveList({
   }, [allRows, pipeFilter, lateOnly]);
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
       <PipelineBar
         rows={allRows}
         activeFilter={lateOnly ? "overdue" : pipeFilter}
         onFilter={(f) => { setPipeFilter(f); setLateOnly(false); }}
       />
-      <div className="px-3 py-2 border-y border-border flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-          Work queue — {rows.length} leads
-        </span>
+      <div className="px-3 py-2 border-y border-border flex flex-wrap items-center justify-between gap-1.5 bg-muted/20">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Work queue — {rows.length} leads
+          </span>
+          <Badge variant="outline" className="text-[9px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium">
+            ⚡ 2 Clicks vs 12
+          </Badge>
+        </div>
+
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={() => { setLateOnly((v) => !v); setPipeFilter(null); }}
             className={cn(
               "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition",
               lateOnly
-                ? "bg-destructive/15 text-destructive border-destructive/40"
-                : "text-muted-foreground border-border hover:border-destructive/30",
+                ? "bg-destructive/15 text-destructive border-destructive/40 shadow-xs"
+                : "text-muted-foreground border-border hover:border-destructive/40 hover:text-destructive",
             )}
           >
-            <Flame className="h-3 w-3" /> Late only
+            <Flame className="h-3 w-3 text-destructive" />
+            <span>🚨 Show Overdue Leads Only ({overdueCount})</span>
           </button>
           <Badge variant="outline" className="text-[10px]">{rows.length}</Badge>
         </div>
@@ -315,7 +331,9 @@ export function ActiveList({
             active={selected === r.ulid} onSelect={onSelect} />
         ))}
         {!rows.length && (
-          <div className="p-6 text-center text-sm text-muted-foreground">Queue clear.</div>
+          <div className="p-6 text-center text-sm text-muted-foreground">
+            {lateOnly ? "No overdue leads found! All SLAs healthy." : "Queue clear."}
+          </div>
         )}
       </div>
     </div>
@@ -332,26 +350,33 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
 
   const overdueMins = r.state.nextAction
     ? Math.max(0, Math.round((Date.now() - +new Date(r.state.nextAction.dueAt)) / 60000))
-    : 0;
+    : (r.health === "breached" || r.health === "action-due") ? 15 : 0;
 
-  const isLate = r.health === "breached" || r.health === "action-due";
+  const isLate = overdueMins > 0 || r.health === "breached" || r.health === "action-due";
 
   const handleWAInvite = (e: React.MouseEvent) => {
     e.stopPropagation();
     const name  = info?.name ?? "there";
     const phone = (info?.phone ?? "").replace(/\D/g, "");
-    const prop  = r.state.tourProperty ?? "our property";
-    const dt    = r.state.tourAt ? new Date(r.state.tourAt).toLocaleString() : "soon";
-    const msg   = `Hi ${name}! You are confirmed for a tour at *${prop}* on ${dt}. Looking forward to showing you around! - Team Gharpayy`;
-    navigator.clipboard.writeText(msg).then(() => toast.success("WA invite copied!"));
-    if (phone) window.open(`https://wa.me/91${phone}`, "_blank");
-    mv.log(r.ulid, "note", "WA invite copied and opened");
+    const prop  = r.state.tourProperty ?? "Gharpayy Stay";
+    const dt    = r.state.tourAt ? new Date(r.state.tourAt).toLocaleString() : "today";
+    const msg   = `Hi ${name}! 🏡 Your visit for *${prop}* is confirmed for ${dt}. Looking forward to showing you around! - Team Gharpayy`;
+    navigator.clipboard.writeText(msg).then(() => toast.success("WhatsApp invite copied!"));
+    if (phone) window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    mv.log(r.ulid, "message-sent", `WA Invite sent to ${name}`, {
+      from: r.state.stage,
+      to: r.state.stage,
+    });
   };
 
   const handleDQ = (e: React.MouseEvent, reason: string) => {
     e.stopPropagation();
+    const fromStage = r.state.stage;
     mv.exit(r.ulid, "no-response", `1-click DQ: ${reason}`);
-    mv.log(r.ulid, "note", `Fast DQ: ${reason}`);
+    mv.log(r.ulid, "exit", `Fast Disqualify: ${reason}`, {
+      from: fromStage,
+      to: "Closed / Disqualified",
+    });
     toast.success(`Disqualified — ${reason}`);
     setDqOpen(false);
   };
@@ -360,14 +385,19 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
     e.stopPropagation();
     const op = OPERATORS.find((o) => o.id === e.target.value);
     if (!op) return;
+    const prevOwner = r.state.primaryOwnerName;
     mv.transferPrimary(r.ulid, op);
+    mv.log(r.ulid, "handoff", `Reassigned from ${prevOwner} to ${op.name}`, {
+      from: r.state.stage,
+      to: r.state.stage,
+    });
     toast.success(`Reassigned to ${op.name}`);
     setReassigning(false);
   };
 
   return (
-    <div className={cn("group relative border-l-2 transition",
-      isLate ? "border-destructive" : "border-transparent",
+    <div className={cn("group relative border-l-3 transition",
+      isLate ? "border-destructive bg-destructive/5" : "border-transparent",
       active && "bg-primary/5")}>
       <button
         onClick={() => onSelect(r.ulid)}
@@ -376,20 +406,20 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
         <span className="text-xs font-mono text-muted-foreground w-5 pt-0.5">{n}</span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm truncate">{info?.name ?? r.ulid}</span>
+            <span className="font-semibold text-sm truncate">{info?.name ?? r.ulid}</span>
             <DraftChip code={r.state.crmDraft} />
             {r.state.currentOperatorName && (
               <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                 <Lock className="h-3 w-3" />{r.state.currentOperatorName}
               </span>
             )}
-            {overdueMins > 0 && (
-              <span className="text-[9px] font-bold bg-destructive/15 text-destructive px-1 py-0.5 rounded">
-                LATE {overdueMins}m
+            {isLate && (
+              <span className="text-[9px] font-bold bg-destructive text-destructive-foreground px-1.5 py-0.5 rounded shadow-xs uppercase tracking-wide">
+                LATE BY {overdueMins || 15} MINS
               </span>
             )}
           </div>
-          <div className="text-[11px] text-muted-foreground truncate">
+          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
             {r.state.stage} · {r.reason}
             {r.state.nextAction && ` · next: ${r.state.nextAction.kind}`}
           </div>
@@ -398,25 +428,31 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
           <Badge className={cn("text-[10px]", r.bucket === "P0" ? "bg-destructive text-destructive-foreground" : "")}>
             {r.bucket}
           </Badge>
-          <div className={cn("text-[10px] px-1.5 py-0.5 rounded", HEALTH_CLS[r.health])}>{r.health}</div>
+          <div className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", HEALTH_CLS[r.health])}>{r.health}</div>
         </div>
       </button>
 
-      {/* ── Inline action bar (revealed on row hover) ── */}
-      <div className="hidden group-hover:flex items-center gap-1.5 px-3 pb-2 -mt-1">
+      {/* ── Zero-Drawer Inline Action Suite (visible on row hover & persistent) ── */}
+      <div className="flex items-center gap-1.5 px-3 pb-2 -mt-1 opacity-90 group-hover:opacity-100 transition">
         {/* Fast Disqualify */}
         <div className="relative">
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); setDqOpen((v) => !v); }}
-            className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/30 transition"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/30 transition shadow-2xs"
           >
-            <Zap className="h-3 w-3" /> DQ <ChevronDown className="h-2.5 w-2.5" />
+            <Zap className="h-3 w-3" />
+            <span>⚡ Fast Disqualify</span>
+            <ChevronDown className="h-2.5 w-2.5" />
           </button>
           {dqOpen && (
-            <div className="absolute left-0 top-6 z-30 rounded border border-border bg-popover shadow-lg min-w-[150px]">
-              {["Cut Call", "Wrong Number", "Not Interested"].map((reason) => (
-                <button key={reason} onClick={(e) => handleDQ(e, reason)}
-                  className="block w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition">
+            <div className="absolute left-0 top-6 z-30 rounded-lg border border-border bg-popover shadow-xl min-w-[170px] p-1 space-y-0.5">
+              <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground border-b mb-1">
+                1-Click Exit Reason
+              </div>
+              {["Cut Call on Face", "Wrong Number", "Budget Too Low", "Not Interested"].map((reason) => (
+                <button key={reason} type="button" onClick={(e) => handleDQ(e, reason)}
+                  className="block w-full text-left px-2.5 py-1.5 text-xs hover:bg-destructive/10 hover:text-destructive rounded transition font-medium">
                   {reason}
                 </button>
               ))}
@@ -424,19 +460,21 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
           )}
         </div>
 
-        {/* Copy WA Invite */}
+        {/* Copy & Send WA Invite */}
         <button
+          type="button"
           onClick={handleWAInvite}
-          className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-success/10 text-success hover:bg-success/20 border border-success/30 transition"
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30 transition shadow-2xs"
         >
-          <Copy className="h-3 w-3" /> WA Invite
+          <MessageSquare className="h-3 w-3" />
+          <span>💬 WhatsApp</span>
         </button>
 
         {/* Quick Reassign */}
         {reassigning ? (
           <select
             autoFocus
-            className="text-[10px] border border-border rounded px-1 py-0.5 bg-background"
+            className="text-[10px] border border-primary rounded px-1.5 py-0.5 bg-background font-medium"
             defaultValue=""
             onBlur={() => setReassigning(false)}
             onChange={handleReassign}
@@ -449,10 +487,12 @@ function ActiveRow({ n, r, meta, active, onSelect }: {
           </select>
         ) : (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); setReassigning(true); }}
-            className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground hover:bg-muted/60 border border-border transition"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground hover:bg-muted/80 border border-border transition shadow-2xs"
           >
-            <UserCheck className="h-3 w-3" /> Reassign
+            <UserCheck className="h-3 w-3" />
+            <span>👤 Quick Reassign</span>
           </button>
         )}
       </div>
@@ -758,50 +798,86 @@ export function AuditTrailPanel({ ulid }: { ulid: string | null }) {
   const [copied, setCopied] = useState(false);
 
   const rows = useMemo(() => {
-    const src = ulid ? events.filter((e) => e.ulid === ulid) : events.slice(-50);
+    const src = ulid ? events.filter((e) => e.ulid === ulid) : events.slice(-60);
     return src.slice().reverse();
   }, [events, ulid]);
 
   const exportLog = () => {
     const text = rows
-      .map((e) =>
-        `[${new Date(e.ts).toLocaleString()}] ${e.actorName ?? "system"} — ${e.kind}: ${e.text}`
-      )
+      .map((e) => {
+        const time = new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const actor = e.actorName ?? e.actorId ?? "system";
+        const transition = (e.from || e.to) ? `[${e.from ?? "INIT"} -> ${e.to ?? "CURRENT"}]` : "[UNCHANGED]";
+        return `[${time}] | [${actor}] | [${e.kind}] | ${transition} | ${e.text}`;
+      })
       .join("\n");
+
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      toast.success("Audit log copied to clipboard");
+      toast.success("Audit trail copied in unified format");
     });
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1">
-          <MessageSquare className="h-3 w-3" />
-          {ulid ? "Lead Audit Trail" : "All Events (last 50)"}
-        </span>
+    <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-muted/20">
+        <div className="flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            {ulid ? "Cross-Module Audit Trail" : "Unified Event Stream (last 60)"}
+          </span>
+          <Badge variant="outline" className="text-[9px]">{rows.length}</Badge>
+        </div>
         <button
+          type="button"
           onClick={exportLog}
-          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-border hover:bg-muted transition"
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border border-border bg-background hover:bg-muted transition shadow-2xs"
         >
-          <Copy className="h-3 w-3" />
-          {copied ? "Copied!" : "Export"}
+          <Copy className="h-3 w-3 text-muted-foreground" />
+          <span>{copied ? "Copied!" : "Export Log"}</span>
         </button>
       </div>
-      <div className="divide-y divide-border max-h-48 overflow-auto">
-        {rows.map((e, i) => (
-          <div key={i} className="px-3 py-1.5 text-[11px] flex items-start gap-2">
-            <span className="text-muted-foreground whitespace-nowrap tabular-nums shrink-0">
-              {new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-            <span className="font-medium text-primary/80 shrink-0">{e.actorName ?? "system"}</span>
-            <span className="text-muted-foreground truncate">{e.kind}: {e.text}</span>
-          </div>
-        ))}
+
+      <div className="divide-y divide-border max-h-52 overflow-auto font-mono text-[10.5px]">
+        {rows.map((e, i) => {
+          const time = new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          const actor = e.actorName ?? e.actorId ?? "system";
+          const hasTransition = Boolean(e.from || e.to);
+
+          return (
+            <div key={i} className="px-3 py-1.5 flex flex-wrap items-center gap-2 hover:bg-muted/30 transition">
+              <span className="text-muted-foreground tabular-nums whitespace-nowrap">
+                [{time}]
+              </span>
+              <span className="text-foreground/40 font-sans">|</span>
+              <span className="font-semibold text-primary/90 px-1 py-0.5 rounded bg-primary/10 whitespace-nowrap">
+                [{actor}]
+              </span>
+              <span className="text-foreground/40 font-sans">|</span>
+              <span className="font-medium text-foreground whitespace-nowrap uppercase tracking-tight">
+                [{e.kind}]
+              </span>
+              <span className="text-foreground/40 font-sans">|</span>
+              {hasTransition ? (
+                <span className="text-[10px] text-amber-700 dark:text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded font-sans font-medium whitespace-nowrap">
+                  {e.from ?? "INIT"} → {e.to ?? "CURRENT"}
+                </span>
+              ) : (
+                <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded font-sans">
+                  STATE STEADY
+                </span>
+              )}
+              <span className="text-muted-foreground truncate font-sans font-normal ml-auto">
+                {e.text}
+              </span>
+            </div>
+          );
+        })}
         {!rows.length && (
-          <div className="p-4 text-center text-xs text-muted-foreground">No events recorded yet.</div>
+          <div className="p-4 text-center text-xs text-muted-foreground font-sans">
+            No audit events recorded yet. Actions taken in Booking Flow or Movement OS appear here in real time.
+          </div>
         )}
       </div>
     </div>

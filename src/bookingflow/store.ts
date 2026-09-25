@@ -6,6 +6,7 @@ import type { Batch, CapturedRow, FlowLead, Mode, Qualification, Temp } from "./
 import { seedCapturedRows, seedLeads } from "./seed";
 import { JOURNEY, currentStep } from "./journey";
 import { canonicalCustomerId } from "@/lib/canonical/customer-id";
+import { useMovement } from "@/movement/store";
 
 const now = () => new Date().toISOString();
 const DAY = 86_400_000;
@@ -287,13 +288,25 @@ export const useBookingFlow = create<State>()(
               const escalate = opt?.effect === "ESCALATE";
               const close = opt?.effect === "CLOSE";
               const owner = stepKey === "OWN" && chosen === "OWN" ? s.me : l.owner;
+              const targetUlid = l.canonicalId || l.id;
+              const nextStage = close ? "CLOSED" : next ? next.key : "SETTLED";
+              try {
+                useMovement.getState().log(targetUlid, "qualified", `${step.title}: ${opt ? opt.label : Object.values(values).filter(Boolean).join(" · ")}`, {
+                  actorId: s.me,
+                  actorName: s.me,
+                  from: l.stage,
+                  to: nextStage,
+                });
+              } catch {
+                // fallback
+              }
               return {
                 ...l,
                 f,
                 owner,
                 handler: owner ?? l.handler,
                 ownedAt: stepKey === "OWN" && chosen === "OWN" ? now() : l.ownedAt,
-                stage: close ? "CLOSED" : next ? next.key : "SETTLED",
+                stage: nextStage,
                 escalated: escalate ? true : l.escalated,
                 closedReason: close ? (values["ownershipNote"] || opt?.label || "Closed") : l.closedReason,
                 lastActionAt: now(),
@@ -444,6 +457,17 @@ export const useBookingFlow = create<State>()(
             leads: s.leads.map((l) => {
               if (l.id !== leadId) return l;
               const owner = l.owner ?? s.me;
+              const targetUlid = l.canonicalId || l.id;
+              try {
+                useMovement.getState().log(targetUlid, "exit", `Fast Disqualify: ${fullReason}`, {
+                  actorId: actor,
+                  actorName: actor,
+                  from: l.stage,
+                  to: "Closed / Disqualified",
+                });
+              } catch {
+                // fallback
+              }
               return {
                 ...l,
                 stage: "Closed / Disqualified",
@@ -489,6 +513,17 @@ export const useBookingFlow = create<State>()(
               delete copyF["disqualifyReason"];
               delete copyF["disqualifiedAt"];
               delete copyF["disqualifiedBy"];
+              const targetUlid = l.canonicalId || l.id;
+              try {
+                useMovement.getState().log(targetUlid, "qualified", "Revoked & Re-opened", {
+                  actorId: actor,
+                  actorName: actor,
+                  from: "Closed / Disqualified",
+                  to: newStage,
+                });
+              } catch {
+                // fallback
+              }
               return {
                 ...l,
                 stage: newStage,

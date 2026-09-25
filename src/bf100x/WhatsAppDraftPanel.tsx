@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
+import { Copy, ExternalLink, RefreshCw, Sparkles, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { FlowLead } from "@/bookingflow/types";
 import { copyText, waLink, WaMark } from "@/components/common/ContactActions";
+import { useBookingFlow } from "@/bookingflow/store";
+import { useMovement } from "@/movement/store";
 
 export type DraftProfile =
   | "Tour Confirmation"
@@ -40,19 +42,19 @@ export function buildDraftMessage(lead: FlowLead | null | undefined, profile: Dr
 
   switch (profile) {
     case "Tour Confirmation":
-      return `Hi ${name}! 🏡\n\nYour property visit for ${property} (${room}) is scheduled for ${tourTime} with ${tourHost}.\n\nPlease let us know if you need location guidance or wish to adjust the schedule!\n\nBest regards,\nGharpayy Team`;
+      return `Hi ${name}! 🏡\n\nYour property visit for *${property}* (${room}) is scheduled for *${tourTime}* with ${tourHost}.\n\nPlease let us know if you need location guidance or wish to adjust the schedule!\n\nBest regards,\nTeam Gharpayy`;
 
     case "Price & Amenities Sharing":
-      return `Hi ${name}! 👋\n\nHere are the details for your stay at ${property} (${room}):\n💰 Rent: ${budget}/month\n✨ Amenities: High-speed Wi-Fi, 3 daily meals, housekeeping, laundry & 24/7 security.\n📅 Available Move-in: ${moveIn}.\n\nLet us know if you'd like to visit the property today!`;
+      return `Hi ${name}! 👋\n\nHere are the details for your stay at *${property}* (${room}):\n💰 Rent: ${budget}/month\n✨ Amenities: High-speed Wi-Fi, 3 daily meals, housekeeping, laundry & 24/7 security.\n📅 Available Move-in: ${moveIn}.\n\nLet us know if you'd like to visit the property today!`;
 
     case "Follow-up Reminder":
-      return `Hi ${name}, following up regarding your accommodation requirement around ${property}.\n\nWe currently have a few premium ${room} slots available for move-in on ${moveIn}. Would you be free for a quick 2-minute call or property visit today?`;
+      return `Hi ${name}, following up regarding your accommodation requirement around *${property}*.\n\nWe currently have a few premium ${room} slots available for move-in on ${moveIn}. Would you be free for a quick 2-minute call or property visit today?`;
 
     case "Location Shared":
-      return `Hi ${name}! 📍\n\nHere is the location details for ${property} (${room}):\nLocality: ${property}.\nSituated close to major corporate offices, transit points, and dining hubs.\n\nPlease drop us a message when you arrive or if you need directions!`;
+      return `Hi ${name}! 📍\n\nHere is the location details for *${property}* (${room}):\nLocality: ${property}.\nSituated close to major corporate offices, transit points, and dining hubs.\n\nPlease drop us a message when you arrive or if you need directions!`;
 
     case "Booking Token":
-      return `Hi ${name}! 🎉\n\nWe are ready to reserve your ${room} at ${property} for move-in on ${moveIn}.\n\nRent Details: ${budget}/month.\nKindly confirm your interest so we can issue your official booking link and token receipt.`;
+      return `Hi ${name}! 🎉\n\nWe are ready to reserve your ${room} at *${property}* for move-in on ${moveIn}.\n\nRent Details: ${budget}/month.\nKindly confirm your interest so we can issue your official booking link and token receipt.`;
 
     default:
       return `Hi ${name}, thank you for contacting Gharpayy! Let us know how we can assist your move-in at ${property}.`;
@@ -63,6 +65,7 @@ export function WhatsAppDraftPanel({ lead }: { lead?: FlowLead | null }) {
   const [profile, setProfile] = useState<DraftProfile>("Tour Confirmation");
   const [customDraft, setCustomDraft] = useState<string>("");
   const [isEdited, setIsEdited] = useState(false);
+  const { logActivity, me } = useBookingFlow();
 
   useEffect(() => {
     if (lead) {
@@ -112,6 +115,19 @@ export function WhatsAppDraftPanel({ lead }: { lead?: FlowLead | null }) {
     } else {
       toast.error("Invalid phone number for WhatsApp");
     }
+
+    // 3. Cross-module audit trail log
+    logActivity(lead.id, "WhatsApp message sent", `${profile}: ${textToSend.slice(0, 50)}...`);
+    try {
+      useMovement.getState().log(lead.canonicalId || lead.id, "message-sent", `WA Invite (${profile}) sent`, {
+        actorId: me,
+        actorName: me,
+        from: lead.stage,
+        to: lead.stage,
+      });
+    } catch {}
+
+    toast.success("📋 WhatsApp invite copied & chat opened!");
   };
 
   return (
@@ -123,17 +139,18 @@ export function WhatsAppDraftPanel({ lead }: { lead?: FlowLead | null }) {
             <WaMark className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-xs font-semibold">Automated WhatsApp Drafter</h2>
+            <h2 className="text-xs font-semibold">Automated WhatsApp Tour Invite</h2>
             <p className="text-[10px] text-muted-foreground">
               {lead ? `Auto-compiling for ${lead.name} (${lead.phone})` : "Select a customer to auto-draft"}
             </p>
           </div>
         </div>
-        {lead && (
-          <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/5 text-[10px] text-emerald-600 dark:text-emerald-400">
-            Live Lead Data
+        <div className="flex items-center gap-1.5">
+          <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">
+            <Zap className="h-2.5 w-2.5 mr-0.5 text-emerald-500" />
+            1 Click vs 6 Clicks
           </Badge>
-        )}
+        </div>
       </div>
 
       {/* Customer summary strip */}
