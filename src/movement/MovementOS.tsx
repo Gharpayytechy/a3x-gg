@@ -4,8 +4,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMovementSync } from "./bridge";
 import { seedMovement } from "./seed";
 import {
-  ActiveList, Dashboards, DraftingPanel, JourneyTimeline, UnmatchedQueue, WorkPanel,
+  ActiveList, AuditTrailPanel, Dashboards, DraftingPanel, JourneyTimeline, UnmatchedQueue, WorkPanel,
 } from "./components";
+import { MovementAICopilot } from "./MovementAICopilot";
 
 export function MovementOS() {
   useEffect(() => { seedMovement(); }, []);
@@ -30,6 +31,8 @@ export function MovementOS() {
         </div>
       </div>
 
+      <MovementAICopilot meta={nameOf} />
+
       <Tabs defaultValue="work">
         <TabsList>
           <TabsTrigger value="work">Work</TabsTrigger>
@@ -45,6 +48,7 @@ export function MovementOS() {
             <div className="space-y-3">
               <WorkPanel ulid={selected} meta={nameOf} />
               <JourneyTimeline ulid={selected} />
+              <AuditTrailPanel ulid={selected} />
             </div>
           </div>
         </TabsContent>

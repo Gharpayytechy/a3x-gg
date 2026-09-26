@@ -12,6 +12,7 @@ import { health, fmtMins } from "@/bookingflow/engine";
 import { useBookingFlow } from "@/bookingflow/store";
 import { useHydrated } from "@/bookingflow/useHydrated";
 import { CloseCommitButton } from "@/components/commitments/CloseCommitButton";
+import { ClosingAIBar, DealAIPanel } from "./ClosingAICopilot";
 
 type Tab = "CLOSING" | "BOOKED" | "MONEY_PENDING" | "CHECKIN";
 
@@ -61,6 +62,9 @@ export function ClosingDesk({ onOpenLead }: { onOpenLead: (id: string) => void }
 
   return (
     <div className="space-y-3">
+      {/* ── AI Intelligence Bar ── */}
+      <ClosingAIBar leads={leads} />
+
       <div className="flex flex-wrap items-center gap-1.5">
         {TABS.map((t) => (
           <Button key={t.key} size="sm" variant={tab === t.key ? "default" : "outline"} className="h-7 px-2 text-[11px]" onClick={() => setTab(t.key)}>{t.label}</Button>
@@ -69,7 +73,7 @@ export function ClosingDesk({ onOpenLead }: { onOpenLead: (id: string) => void }
       </div>
 
       {rows.map(({ l, h, f }) => (
-        <Card key={l.id} className="p-3">
+        <Card key={l.id} className="p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="text-sm font-medium underline-offset-2 hover:underline" onClick={() => onOpenLead(l.id)}>{l.name}</button>
             <span className="text-xs text-muted-foreground">{l.phone}</span>
@@ -79,7 +83,7 @@ export function ClosingDesk({ onOpenLead }: { onOpenLead: (id: string) => void }
             {h.sla === "LATE" && <Badge variant="destructive" className="text-[10px]">late {fmtMins(h.minutesLate)}</Badge>}
             {h.toTower && <Badge variant="destructive" className="text-[10px]"><ShieldAlert className="mr-1 h-3 w-3" />tower</Badge>}
           </div>
-          <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
             <span>Property: {f["property"] || "—"}</span>
             <span>Rent: {money(f["rent"])}</span>
             <span>Deposit: {money(f["deposit"])}</span>
@@ -88,7 +92,7 @@ export function ClosingDesk({ onOpenLead }: { onOpenLead: (id: string) => void }
             <span>Decision: {f["decision"] || "—"}</span>
             <span>Approval: {f["approval"] || "—"}</span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {tab === "MONEY_PENDING" && (
               <>
                 <Input className="h-7 w-28 text-xs" type="number" placeholder="Amount" value={amount[l.id] ?? ""} onChange={(e) => setAmount((s) => ({ ...s, [l.id]: e.target.value }))} />
@@ -102,6 +106,8 @@ export function ClosingDesk({ onOpenLead }: { onOpenLead: (id: string) => void }
             <CloseCommitButton leadId={l.id} leadName={l.name} leadPhone={l.phone} actorName={l.owner ?? "You"} size="sm" />
             <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => onOpenLead(l.id)}>Open the customer</Button>
           </div>
+          {/* ── AI Deal Analysis Panel ── */}
+          <DealAIPanel lead={l} />
         </Card>
       ))}
 
